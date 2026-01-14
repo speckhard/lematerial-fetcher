@@ -4,6 +4,26 @@ from lematerial_fetcher.fetcher.aflow.fetch import AflowFetcher
 from lematerial_fetcher.fetch import BatchInfo, FetcherConfig
 
 @pytest.mark.slow
+def test_aflow_unlimited_mode_config():
+    """
+    Verifies that get_items_to_process returns None for total_count,
+    triggering the BaseFetcher's unlimited pagination loop.
+    """
+    mock_config = MagicMock(spec=FetcherConfig)
+    mock_config.db_conn_str = "postgresql://dummy"
+    mock_config.table_name = "test_aflow"
+
+    with patch("lematerial_fetcher.fetch.DatasetVersions"): 
+        fetcher = AflowFetcher(config=mock_config)
+        items_info = fetcher.get_items_to_process()
+
+    print(f"\nFetched Total Count: {items_info.total_count}")
+    
+    assert items_info.total_count is None
+    assert items_info.start_offset == 0
+
+
+@pytest.mark.slow
 def test_aflow_process_batch_live():
     """
     Integration test that hits the actual AFLOW API for one page
@@ -31,7 +51,7 @@ def test_aflow_process_batch_live():
         success = AflowFetcher._process_batch(
             batch=batch, 
             config=mock_config, 
-            manager_dict={}, 
+            manager_dict={},
             worker_id=99
         )
 
@@ -53,3 +73,27 @@ def test_aflow_process_batch_live():
         print(f"\nFetched Entry: {first_entry.get('auid', 'Unknown')}")
         assert "auid" in first_entry
         assert "species" in first_entry
+
+        # --- NEW TYPE CHECKS ---
+        print("\n--- DATA TYPE INSPECTION ---")
+        
+        # Check Geometry
+        geo = first_entry.get("geometry")
+        print(f"Geometry Type: {type(geo)}")
+        print(f"Geometry Value: {geo}")
+        
+        # Check Positions
+        pos = first_entry.get("positions_fractional")
+        print(f"Positions Type: {type(pos)}")
+        print(f"Positions Value (sample): {pos if not isinstance(pos, list) else pos[:1]}")
+
+        # Check Composition
+        comp = first_entry.get("composition")
+        print(f"Composition Type: {type(comp)}")
+        print(f"Composition Value: {comp}")
+
+        # Assertions to fail if they aren't lists (so you know immediately)
+        # You can comment these out if you just want to see the print output first
+        # assert isinstance(geo, list), f"Geometry should be a list, got {type(geo)}"
+        # assert isinstance(pos, list), f"Positions should be a list, got {type(pos)}"
+        # assert isinstance(comp, list), f"Composition should be a list, got {type(comp)}"

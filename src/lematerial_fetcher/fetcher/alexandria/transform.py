@@ -1,292 +1,170 @@
 # Copyright 2025 Entalpic
-from typing import Optional
+"""Transform raw API rows from the fetch.py script into optimade structures."""
+from datetime import datetime
+from typing import Any, Optional, Dict, List
 
-from pymatgen.core import Structure
+from pymatgen.core import Structure, Lattice
 
 from lematerial_fetcher.database.postgres import (
+    OptimadeDatabase,
     StructuresDatabase,
-    TrajectoriesDatabase,
 )
 from lematerial_fetcher.models.models import RawStructure
-from lematerial_fetcher.models.optimade import Functional, OptimadeStructure
-from lematerial_fetcher.models.trajectories import Trajectory, has_trajectory_converged
+from lematerial_fetcher.models.optimade import (
+    OptimadeStructure, 
+    Functional, 
+)
 from lematerial_fetcher.transform import BaseTransformer
+from lematerial_fetcher.utils.logging import logger
 from lematerial_fetcher.utils.structure import get_optimade_from_pymatgen
 
-
-def get_cross_compatibility(elements: list[str]) -> bool:
+class AflowTransformer(BaseTransformer[OptimadeDatabase, OptimadeStructure]):
     """
-    Get the cross-compatibility of an Alexandria structure.
-
-    Currently, Yb containing structures are not cross-compatible.
+    AFLOW transformer implementation.
+    Transforms raw AFLOW JSON data (from Postgres) into OptimadeStructures.
     """
-    return not any(element in ["Yb"] for element in elements)
-
-
-class AlexandriaTransformer(BaseTransformer):
-    """
-    Alexandria transformer implementation.
-    Transforms raw Alexandria data into OptimadeStructures.
-    """
-
-    def get_new_transform_version(self) -> str:
-        """
-        Get the new transform version based on the latest processed data.
-
-        Returns
-        -------
-        str
-            New transform version in YYYY-MM-DD format
-        """
-        try:
-            with self.target_db.conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT MAX(last_modified::date)::text
-                    FROM {self.config.dest_table_name}
-                    """
-                )
-                latest_date = cur.fetchone()[0]
-                return (
-                    latest_date if latest_date else super().get_new_transform_version()
-                )
-        except Exception:
-            return super().get_new_transform_version()
 
     def transform_row(
         self,
-        raw_structure: RawStructure,
+        raw_structure: RawStructure | dict[str, Any],
         source_db: Optional[StructuresDatabase] = None,
         task_table_name: Optional[str] = None,
     ) -> list[OptimadeStructure]:
-        """
-        Transform a raw Alexandria structure into OptimadeStructures.
-
-        Parameters
-        ----------
-        raw_structure : RawStructure
-            RawStructure object from the dumped database
-        source_db : Optional[StructuresDatabase]
-            Source database connection
-        task_table_name : Optional[str]
-            Task table name to read targets or trajectories from
-
-        Returns
-        -------
-        list[OptimadeStructure]
-            The transformed OptimadeStructure objects.
-            If the list is empty, nothing from the structure should be included in the database.
-        """
-
-        key_mapping_base = {
-            "immutable_id": "immutable_id",
-            "chemical_formula_reduced": "chemical_formula_reduced",
-            "chemical_formula_anonymous": "chemical_formula_anonymous",
-            "chemical_formula_descriptive": "chemical_formula_descriptive",
-            "cartesian_site_positions": "cartesian_site_positions",
-            "elements": "elements",
-            "elements_ratios": "elements_ratios",
-            "nelements": "nelements",
-            "nsites": "nsites",
-            "species_at_sites": "species_at_sites",
-            "species": "species",
-            "nperiodic_dimensions": "nperiodic_dimensions",
-            "dimension_types": "dimension_types",
-            "last_modified": "last_modified",
-            "lattice_vectors": "lattice_vectors",
-        }
-
-        key_mapping_functional = {
-            **key_mapping_base,
-            "_alexandria_forces": "forces",
-            "_alexandria_stress_tensor": "stress_tensor",
-            "_alexandria_dos_ef": "dos_ef",
-            "_alexandria_energy": "energy",
-            "_alexandria_energy_corrected": "energy_corrected",
-            "_alexandria_magnetic_moments": "magnetic_moments",
-            "_alexandria_magnetization": "total_magnetization",
-            "_alexandria_charges": "charges",
-            "_alexandria_band_gap": "band_gap_indirect",
-        }
-
-        def get_structure_from_key_mapping(
-            key_mapping: dict[str, str], functional: Functional | None
-        ) -> OptimadeStructure:
-            values_dict = {}
-            for key, value in key_mapping.items():
-                values_dict[value] = raw_structure.attributes[key]
-
-            if functional is None:
-                functional = self._alexandria_functional(raw_structure)
-
-            optimade_structure = OptimadeStructure(
-                **values_dict,
-                id=f"{raw_structure.id}-{functional.value}",
-                source="alexandria",
-                functional=functional,
-                cross_compatibility=get_cross_compatibility(values_dict["elements"]),
-                compute_space_group=True,
-                compute_bawl_hash=True,
-            )
-
-            return optimade_structure
-
-        structures = [get_structure_from_key_mapping(key_mapping_functional, None)]
-
-        # Scan data is included with pbesol as fields with 'scan' prefix
-        if any("scan" in key for key in raw_structure.attributes):
-            key_mapping_scan = {
-                **key_mapping_base,
-                "_alexandria_scan_forces": "forces",
-                "_alexandria_scan_stress_tensor": "stress_tensor",
-                "_alexandria_scan_dos_ef": "dos_ef",
-                "_alexandria_scan_energy": "energy",
-                "_alexandria_scan_energy_corrected": "energy_corrected",
-                "_alexandria_scan_magnetic_moments": "magnetic_moments",
-                "_alexandria_scan_magnetization": "total_magnetization",
-                "_alexandria_scan_charges": "charges",
-                "_alexandria_scan_band_gap": "band_gap_indirect",
-            }
-            structures.append(
-                get_structure_from_key_mapping(key_mapping_scan, Functional.SCAN)
-            )
-
-        return structures
-
-    def _alexandria_functional(self, raw_structure: RawStructure) -> Functional:
-        """
-        Get the functional from the raw Alexandria structure.
-        """
-        if "pbesol" in raw_structure.attributes["_alexandria_xc_functional"].lower():
-            return Functional.PBESOL
-        elif "pbe" in raw_structure.attributes["_alexandria_xc_functional"].lower():
-            return Functional.PBE
-        elif "scan" in raw_structure.attributes["_alexandria_xc_functional"].lower():
-            return Functional.SCAN
+        
+        # 1. Extract the JSON blob safely
+        if isinstance(raw_structure, dict):
+            data = raw_structure.get("data", {})
         else:
-            raise ValueError(
-                f"Unknown functional: {raw_structure.attributes['_alexandria_xc_functional']}"
-            )
+            data = getattr(raw_structure, "data", {})
 
+        if not data:
+            return []
 
-class AlexandriaTrajectoryTransformer(BaseTransformer):
-    """
-    Alexandria trajectory transformer implementation.
-    Transforms raw Alexandria trajectory data into Trajectory objects.
-    """
+        auid = data.get("auid")
+        if not auid:
+            return []
 
-    def __init__(self, *args, **kwargs):
-        if "structure_class" in kwargs:
-            del kwargs["structure_class"]
-        if "database_class" in kwargs:
-            del kwargs["database_class"]
-        super().__init__(
-            *args,
-            **kwargs,
-            structure_class=Trajectory,
-            database_class=TrajectoriesDatabase,
-        )
-
-    def get_new_transform_version(self) -> str:
-        """
-        Get the new transform version based on the latest processed data.
-
-        Returns
-        -------
-        str
-            New transform version in YYYY-MM-DD format
-        """
         try:
-            with self.target_db.conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT MAX(last_modified::date)::text
-                    FROM {self.config.dest_table_name}
-                    """
-                )
-                latest_date = cur.fetchone()[0]
-                return (
-                    latest_date if latest_date else super().get_new_transform_version()
-                )
+            # 2. Build Pymatgen Structure
+            structure = self._build_structure(data)
+            if not structure:
+                logger.warning(f"Skipping {auid}: Invalid structure construction (missing geometry or species mismatch).")
+                return []
+
+            # 3. Extract Properties
+            # Energy: AFLOW gives eV/cell. We also check per-atom as backup.
+            enthalpy_atom = data.get("enthalpy_formation_atom") or data.get("enthalpy_atom")
+            enthalpy_cell = data.get("energy_cell") 
+            
+            energy_total = None
+            if enthalpy_cell is not None:
+                energy_total = float(enthalpy_cell)
+            elif enthalpy_atom is not None:
+                # Fallback: calculate total if only per-atom is available
+                energy_total = float(enthalpy_atom) * structure.num_sites
+
+            # Functional (PBE, LDA, SCAN, etc.)
+            dft_raw = data.get("dft_type", ["Unknown"])
+            # dft_type is often a list ["PAW_PBE"], but sometimes just a string.
+            dft_str = str(dft_raw[0]) if isinstance(dft_raw, list) and dft_raw else str(dft_raw)
+            dft_str = dft_str.upper()
+
+            functional = Functional.UNKNOWN
+            if "PBE" in dft_str:
+                functional = Functional.PBE
+            elif "LDA" in dft_str:
+                functional = Functional.LDA
+            elif "SCAN" in dft_str:
+                functional = Functional.SCAN
+            
+            # Band Gap
+            band_gap_raw = data.get("Egap")
+            band_gap = float(band_gap_raw) if band_gap_raw is not None else None
+            
+            # 4. Create Optimade Structure
+            # get_optimade_from_pymatgen handles: elements, nelements, lattice_vectors, etc.
+            optimade_keys = get_optimade_from_pymatgen(structure)
+            
+            optimade_structure = OptimadeStructure(
+                id=f"aflow-{auid}",
+                source="aflow",
+                immutable_id=f"aflow-{auid}",
+                last_modified=datetime.now(), # Or parse data.get('aflowlib_date') if available
+                
+                # Structure Fields
+                **optimade_keys,
+                species_at_sites=[str(s) for s in structure.species],
+                cartesian_site_positions=structure.cart_coords.tolist(),
+                
+                # Properties
+                energy=energy_total,
+                functional=functional,
+                band_gap_indirect=band_gap,
+                
+                # Metadata / Calculations
+                cross_compatibility=True, 
+                compute_space_group=True,
+                compute_bawl_hash=True
+            )
+            
+            return [optimade_structure]
+
+        except Exception as e:
+            logger.warning(f"Failed to transform AFLOW entry {auid}: {e}")
+            return []
+
+    def _build_structure(self, data: Dict[str, Any]) -> Optional[Structure]:
+        """
+        Constructs a Structure from AFLOW's parameter lists.
+        """
+        # A. Create Lattice
+        # geometry = [a, b, c, alpha, beta, gamma]
+        geo_params = data.get("geometry")
+        if not geo_params or not isinstance(geo_params, list) or len(geo_params) != 6:
+            return None
+        
+        try:
+            lattice = Lattice.from_parameters(*geo_params)
         except Exception:
-            return super().get_new_transform_version()
+            return None
 
-    def transform_row(
-        self,
-        raw_structure: RawStructure,
-        source_db: StructuresDatabase,
-        task_table_name: Optional[str] = None,
-    ) -> list[Trajectory]:
-        """
-        Transform a raw Alexandria structure into OptimadeStructures.
+        # B. Get Coordinates
+        # Try fractional first (preferred for crystals), then cartesian
+        coords = data.get("positions_fractional")
+        coords_are_cartesian = False
+        
+        if not coords:
+            coords = data.get("positions_cartesian")
+            coords_are_cartesian = True
+            
+        if not coords or not isinstance(coords, list):
+            return None
 
-        Parameters
-        ----------
-        raw_structure : RawStructure
-            RawStructure object from the dumped database
-        source_db : Optional[StructuresDatabase]
-            Source database connection
-        task_table_name : Optional[str]
-            Task table name to read targets or trajectories from
+        # C. Expand Species List
+        # AFLOW data: species=['Ag', 'O'], composition=[2, 4]
+        # Pymatgen needs: ['Ag', 'Ag', 'O', 'O', 'O', 'O']
+        species_types = data.get("species")
+        composition = data.get("composition") 
+        
+        if not species_types or not composition or len(species_types) != len(composition):
+            return None
+            
+        expanded_species = []
+        for sp, count in zip(species_types, composition):
+            try:
+                # count might be 1 or 1.0 or "1"
+                expanded_species.extend([sp] * int(float(count)))
+            except ValueError:
+                return None
+            
+        # Validation
+        # The number of atoms must match the number of coordinate positions
+        if len(expanded_species) != len(coords):
+            return None
 
-        Returns
-        -------
-        list[OptimadeStructure]
-            The transformed OptimadeStructure objects.
-                  If the list is empty, nothing from the structure should be included in the database.
-        """
-
-        trajectories = []
-
-        current_relaxation_number = 0
-        energy_correction = None
-        for relaxation_number, calc in enumerate(raw_structure.attributes):
-            relaxation_steps = calc["steps"]
-            for relaxation_step, relaxation_step_dict in enumerate(relaxation_steps):
-                structure = Structure.from_dict(relaxation_step_dict["structure"])
-                optimade_structure_dict = get_optimade_from_pymatgen(structure)
-
-                targets = {
-                    "energy": relaxation_step_dict["energy"],
-                    "forces": relaxation_step_dict["forces"],
-                    "stress_tensor": relaxation_step_dict["stress"],
-                }
-
-                # Avoids errors when one component of the force is None
-                # which makes the calculation obsolete?
-                if any(any(f is None for f in force) for force in targets["forces"]):
-                    targets["forces"] = None
-
-                trajectory = Trajectory(
-                    immutable_id=raw_structure.id,
-                    id=f"{raw_structure.id}-{Functional(calc['functional'].lower()).value}-{current_relaxation_number}",
-                    source="alexandria",
-                    last_modified=raw_structure.last_modified,
-                    **optimade_structure_dict,
-                    **targets,
-                    relaxation_number=relaxation_number,
-                    relaxation_step=current_relaxation_number,
-                    functional=Functional(calc["functional"].lower()),
-                    cross_compatibility=get_cross_compatibility(
-                        optimade_structure_dict["elements"]
-                    ),
-                    energy_corrected=(
-                        targets["energy"] + energy_correction
-                        if targets["energy"] is not None
-                        and energy_correction is not None
-                        else None
-                    ),
-                )
-                energy_correction = (
-                    trajectory.energy_corrected - trajectory.energy
-                    if trajectory.energy is not None
-                    and trajectory.energy_corrected is not None
-                    else None
-                )
-
-                trajectories.append(trajectory)
-                current_relaxation_number += 1
-
-        trajectories = has_trajectory_converged(trajectories)
-
-        return trajectories
+        return Structure(
+            lattice=lattice, 
+            species=expanded_species, 
+            coords=coords, 
+            coords_are_cartesian=coords_are_cartesian
+        )
