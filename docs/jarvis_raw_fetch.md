@@ -70,9 +70,15 @@ PYTHONPATH=src python -m unittest discover -s tests/fetcher/jarvis
 Local result: 14 tests, 13 passed and one skipped because `ijson` is unavailable
 in the existing offline runtime. The production-parser test runs with upstream
 runtime dependencies and checks valid, truncated, trailing and wrong-root JSON.
-No archive download/import, dependency-backed CLI smoke, live PostgreSQL,
-concurrent-publication check or full upstream suite was performed. These remain
-required before production use; this is deliberately a draft raw-ingestion PR.
+GitHub CI subsequently installed the upstream dependencies and passed lint plus
+the full suite: **145 passed, 2 skipped** (the two skips are outside JARVIS). All
+14 JARVIS tests, including the production-parser fixtures, passed there. See
+[CI run](https://github.com/LeMaterial/lematerial-fetcher/actions/runs/39421761489).
+The parser currently emits an ijson text-stream deprecation warning; binary
+stream handling should be hardened before production. No real archive import,
+JARVIS-specific dependency-backed CLI smoke, live PostgreSQL or concurrent
+publication check was performed. These remain required before production use;
+this is deliberately a draft raw-ingestion PR.
 No new dependencies were added. Parser syntax and lint checks passed locally.
 
 TDD evidence: archive/store fixture tests failed before their implementations;
