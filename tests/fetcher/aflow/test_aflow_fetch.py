@@ -163,9 +163,10 @@ def test_process_batch_empty_page_stops_pagination(mock_config, mock_db):
     mock_db.batch_insert_data.assert_not_called()
 
 
-def test_process_batch_non_list_payload_stops_pagination(mock_config, mock_db):
+def test_process_batch_non_list_payload_marks_failure(mock_config, mock_db):
     # AFLUX error payloads are dicts, not lists
     session = make_mock_session({"error": "something went wrong"})
+    status = {}
     with (
         patch(
             "lematerial_fetcher.fetcher.aflow.fetch.StructuresDatabase",
@@ -177,10 +178,11 @@ def test_process_batch_non_list_payload_stops_pagination(mock_config, mock_db):
         ),
     ):
         more_data = AflowFetcher._process_batch(
-            BatchInfo(offset=0, limit=5), mock_config, manager_dict={}
+            BatchInfo(offset=0, limit=5), mock_config, manager_dict=status
         )
 
     assert more_data is False
+    assert status["failed"] is True
     mock_db.batch_insert_data.assert_not_called()
 
 
