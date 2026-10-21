@@ -11,7 +11,7 @@ import json
 import math
 import re
 
-from lematerial_fetcher.fetcher.jarvis.archive import ARCHIVE_MD5, ARCHIVE_VERSION
+from lematerial_fetcher.fetcher.jarvis.release import make_receipt
 
 ELEMENTS = {
     "H",
@@ -207,11 +207,13 @@ def extract_band_gaps(raw, receipt):
             raise ValueError("SHA256 required")
     if not isinstance(receipt.get("release"), str) or not receipt["release"].strip():
         raise ValueError("release required")
-    if kind == "published" and (
-        receipt["release"] != ARCHIVE_VERSION
-        or receipt.get("archive_md5") != ARCHIVE_MD5
-    ):
-        raise ValueError("published release must match pinned archive")
+    if kind == "published":
+        expected = make_receipt(receipt["archive_sha256"])
+        for key in expected:
+            if key != "scope" and receipt.get(key) != expected[key]:
+                raise ValueError(
+                    "published receipt does not match pinned export: " + key
+                )
     raw_hash = record_hash(raw)
     if raw_hash != receipt["raw_record_sha256"]:
         raise ValueError("raw record binding mismatch")
@@ -243,6 +245,21 @@ def extract_band_gaps(raw, receipt):
                 "geometry_sha256": record_hash(geometry),
                 "raw_record_sha256": raw_hash,
                 "archive_sha256": receipt["archive_sha256"],
+                "source_receipt": {
+                    key: copy.deepcopy(receipt[key])
+                    for key in (
+                        "figshare_article_id",
+                        "figshare_version",
+                        "file_id",
+                        "archive_name",
+                        "snapshot_date",
+                        "published_date",
+                        "metadata_url",
+                        "url",
+                        "archive_md5",
+                    )
+                    if key in receipt
+                },
                 "protocol": {
                     "functional": method,
                     "gap_definition": "reported electronic band gap",
@@ -261,3 +278,28 @@ def extract_band_gaps(raw, receipt):
             }
         )
     return labels
+
+
+def extract_stored_band_gaps(attributes):
+    """Read stored raw attributes without hashing the added ingestion metadata.
+
+    This binds observations to the current raw row; it does not independently
+    prove archive membership or an electronic calculation's reference geometry.
+    """
+    if not isinstance(attributes, dict):
+        raise TypeError("stored JARVIS attributes must be an object")
+    if "_lematerial_ingestion" not in attributes:
+        raise ValueError("stored JARVIS ingestion receipt required")
+    if not isinstance(attributes["_lematerial_ingestion"], dict):
+        raise TypeError("stored JARVIS receipt must be an object")
+    raw = {
+        key: copy.deepcopy(value)
+        for key, value in attributes.items()
+        if key != "_lematerial_ingestion"
+    }
+    receipt = copy.deepcopy(attributes["_lematerial_ingestion"])
+    digest = record_hash(raw)
+    if receipt.get("raw_record_sha256") not in (None, digest):
+        raise ValueError("stored raw record hash conflicts with receipt")
+    receipt["raw_record_sha256"] = digest
+    return extract_band_gaps(raw, receipt)

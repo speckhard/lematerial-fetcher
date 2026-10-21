@@ -22,8 +22,8 @@ Raw attributes preserve separate `optb88vdw_bandgap`, `mbj_bandgap`, elastic
 fields, missing-value representations and all other source fields. Zero gaps
 remain zero. No PBE relabeling, MP energy corrections, unit conversion or
 cross-source deduplication is performed. `last_modified` is null because the
-archive release date is not an entry modification timestamp; the release date
-is retained in `_lematerial_ingestion`. Parsed values preserve field semantics,
+snapshot date is not an entry modification timestamp. `_lematerial_ingestion`
+keeps the snapshot date, Figshare article/version and publication timestamp separately. Parsed values preserve field semantics,
 not byte-for-byte JSON formatting; hashes identify the original archive.
 
 ## Operation
@@ -74,8 +74,8 @@ GitHub CI subsequently installed the upstream dependencies and passed lint plus
 the full suite: **145 passed, 2 skipped** (the two skips are outside JARVIS). All
 14 JARVIS tests, including the production-parser fixtures, passed there. See
 [CI run](https://github.com/LeMaterial/lematerial-fetcher/actions/runs/39421761489).
-The parser currently emits an ijson text-stream deprecation warning; binary
-stream handling should be hardened before production. No real archive import,
+The parser now receives a binary ZIP stream. A small regression checks that
+boundary; the actual ijson test still needs the installed dependency. No real archive import,
 JARVIS-specific dependency-backed CLI smoke, live PostgreSQL or concurrent
 publication check was performed. These remain required before production use;
 this is deliberately a draft raw-ingestion PR.
@@ -87,3 +87,21 @@ those implementations. Relevant offline regressions passed afterwards. An
 adversarial Astra review found the initial partial-table publication issue;
 staging plus atomic version publication addresses it, with integration limits
 above explicitly retained.
+
+## Review fixes — 2026-10-21
+
+The filename describes a 2025-09-24 snapshot. Figshare article6815699 version11
+was published on 2026-05-09T07:44:20Z. These are different dates. Receipts now
+store both, with file64391379 and its checksum. The release ID names the article,
+version and file instead of calling the snapshot date a publication date.
+[Exact source metadata](https://api.figshare.com/v2/articles/6815699/versions/11).
+
+Archive URL/version exports remain available for existing callers. Old receipts
+are not rewritten. Their legacy version name is not silently promoted to the
+new audited format; downstream readers must keep or explicitly migrate them.
+
+Tests first: release-receipt tests failed before the helper existed. A binary
+stream test failed on the old text wrapper. Both now pass. A public-constant
+regression caught a removed re-export during cleanup and now passes too. The
+raw-source suite has17 passes and one missing-ijson skip. No live database or
+source download was run.
