@@ -43,7 +43,7 @@ class AflowTransformer(BaseTransformer):
             optimade_structure = transform_aflux_entry(
                 raw_structure.attributes, raw_structure.id
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Keep invalid rows in raw storage and skip their transform.
             logger.warning(f"Error transforming structure {raw_structure.id}: {e}")
             return []
 
