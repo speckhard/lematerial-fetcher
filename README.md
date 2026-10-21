@@ -61,7 +61,7 @@ elastic fields are retained; standardized transformation is a separate step.
    uv add git+https://github.com/LeMaterial/lematerial-fetcher.git
    # or
    uv pip install git+https://github.com/LeMaterial/lematerial-fetcher.git
-   
+
    # Or using pip
    pip install git+https://github.com/LeMaterial/lematerial-fetcher.git
    ```
@@ -110,10 +110,10 @@ lematerial-fetcher [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
    ```bash
    # Fetch structures
    lematerial-fetcher mp fetch --table-name mp_structures --num-workers 4
-   
+
    # Fetch tasks
    lematerial-fetcher mp fetch --tasks --table-name mp_tasks
-   
+
    # Transform data
    lematerial-fetcher mp transform --table-name source_table --dest-table-name dest_table
    ```
@@ -123,10 +123,10 @@ lematerial-fetcher [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
    ```bash
    # Fetch structures
    lematerial-fetcher alexandria fetch --table-name alex_structures --functional pbe
-   
+
    # Fetch trajectories
    lematerial-fetcher alexandria fetch --traj --table-name alex_trajectories
-   
+
    # Transform data
    lematerial-fetcher alexandria transform --table-name source_table --dest-table-name dest_table
    ```
@@ -136,7 +136,7 @@ lematerial-fetcher [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
    ```bash
    # Fetch data
    lematerial-fetcher oqmd fetch --table-name oqmd_structures
-   
+
    # Transform data
    lematerial-fetcher oqmd transform --table-name source_table --dest-table-name dest_table
    ```
@@ -144,12 +144,22 @@ lematerial-fetcher [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
 4. **AFLOW**
 
    ```bash
-   # Fetch data (via the AFLUX search API)
+   # Fetch data through AFLUX. Use a new table for each attempt.
    lematerial-fetcher aflow fetch --table-name aflow_structures
-   
+
    # Transform data
    lematerial-fetcher aflow transform --table-name source_table --dest-table-name dest_table
    ```
+
+   A failed fetch raises an error and does not record a completed version. It
+   can leave pages in the raw table: do not transform that table after a failed
+   run. The next attempt should use a new table. `--limit` is a page size, not a
+   cap on the entire download; check storage and job limits before running.
+
+   The transform requires an explicit `PAW_PBE` declaration. Missing or other
+   functionals stay in the raw table. AFLOW total energies also stay raw: the
+   transform leaves energy fields empty rather than applying unverified MP
+   corrections.
 
 5. **Push to Hugging Face**
 
@@ -233,7 +243,7 @@ You can configure the database connection in two ways:
    ```bash
    # Set password in environment
    export LEMATERIALFETCHER_DB_PASSWORD=your_password
-   
+
    # Run command
    lematerial-fetcher mp fetch --db-user username --db-name database_name
    ```

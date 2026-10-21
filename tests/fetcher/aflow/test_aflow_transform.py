@@ -37,6 +37,7 @@ ROCKSALT_NACL = {
     "compound": "Cl4Na4",
     "catalog": "ICSD",
     "energy_cell": -27.0,
+    "dft_type": ["PAW_PBE"],
     "aflowlib_date": "20200426_10:04:20_GMT-5",
 }
 
@@ -109,8 +110,10 @@ def test_transform_aflux_entry_rocksalt():
     assert optimade.space_group_it_number == 225
     assert optimade.bawl_fingerprint
 
-    # energy_cell flows into energy (then MP-2020 corrections apply downstream)
-    assert optimade.energy is not None
+    # Raw AFLOW energy is not passed through unaudited MP corrections.
+    assert optimade.energy is None
+    assert optimade.energy_corrected is None
+    assert ROCKSALT_NACL["energy_cell"] == -27.0
     assert optimade.last_modified.year == 2020
 
 
@@ -161,13 +164,35 @@ def test_transform_rejects_unsupported_dft_type(dft_type):
         transform_aflux_entry(entry, entry["auid"])
 
 
-def test_transform_accepts_missing_dft_type():
-    """Entries without provenance are still accepted under the PBE default
-    (AFLOW's standard workflow); only *known* non-PBE entries are rejected."""
+@pytest.mark.parametrize("value", [None, []])
+def test_transform_rejects_unknown_dft_type(value):
+    entry = dict(ROCKSALT_NACL, dft_type=value)
+    with pytest.raises(ValueError, match="dft_type"):
+        transform_aflux_entry(entry, entry["auid"])
+
+
+def test_transform_rejects_missing_dft_type():
     entry = dict(ROCKSALT_NACL)
-    entry.pop("dft_type", None)
-    optimade = transform_aflux_entry(entry, entry["auid"])
-    assert optimade.functional == Functional.PBE
+    del entry["dft_type"]
+    with pytest.raises(ValueError, match="dft_type"):
+        transform_aflux_entry(entry, entry["auid"])
+
+
+def test_transform_does_not_send_source_energy_to_mp_correction():
+    from unittest.mock import patch
+
+    with patch(
+        "lematerial_fetcher.models.optimade.apply_mp_2020_energy_correction"
+    ) as correction:
+
+        def no_source_energy(structure, energy, *args):
+            assert energy is None, "AFLOW energy reached MP correction"
+
+        correction.side_effect = no_source_energy
+        result = transform_aflux_entry(ROCKSALT_NACL, ROCKSALT_NACL["auid"])
+    assert result.energy is None
+    assert result.energy_corrected is None
+    assert all(call.args[1] is None for call in correction.call_args_list)
 
 
 def test_cross_catalog_duplicates_share_fingerprint(aflux_page):

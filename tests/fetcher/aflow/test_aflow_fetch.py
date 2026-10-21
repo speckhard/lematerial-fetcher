@@ -82,7 +82,7 @@ def test_build_aflux_query_rejects_page_zero():
 def test_parse_aflowlib_date_scalar():
     assert parse_aflowlib_date("20200426_10:04:20_GMT-5") == datetime(
         2020, 4, 26, 10, 4, 20
-    )
+    )  # noqa: DTZ001 -- Compare the retained source calendar value.
 
 
 def test_parse_aflowlib_date_list_takes_most_recent():
@@ -91,7 +91,7 @@ def test_parse_aflowlib_date_list_takes_most_recent():
         "20120229_03:56:50_GMT-5",
         "20210901_18:40:12_GMT-4",
     ]
-    assert parse_aflowlib_date(dates) == datetime(2021, 9, 1, 18, 40, 12)
+    assert parse_aflowlib_date(dates) == datetime(2021, 9, 1, 18, 40, 12)  # noqa: DTZ001 -- Source calendar value.
 
 
 @pytest.mark.parametrize("bad_value", [None, "", [], "not-a-date"])
@@ -140,7 +140,7 @@ def test_process_batch_inserts_raw_structures(mock_config, mock_db, aflux_page):
         assert raw.attributes == entry
         if entry.get("aflowlib_date"):
             # stored with day precision for versioning
-            datetime.strptime(raw.last_modified, "%Y-%m-%d")
+            datetime.strptime(raw.last_modified, "%Y-%m-%d")  # noqa: DTZ007 -- Validate date-only storage.
 
 
 def test_process_batch_empty_page_stops_pagination(mock_config, mock_db):
@@ -163,9 +163,10 @@ def test_process_batch_empty_page_stops_pagination(mock_config, mock_db):
     mock_db.batch_insert_data.assert_not_called()
 
 
-def test_process_batch_non_list_payload_stops_pagination(mock_config, mock_db):
+def test_process_batch_non_list_payload_marks_failure(mock_config, mock_db):
     # AFLUX error payloads are dicts, not lists
     session = make_mock_session({"error": "something went wrong"})
+    status = {}
     with (
         patch(
             "lematerial_fetcher.fetcher.aflow.fetch.StructuresDatabase",
@@ -177,10 +178,11 @@ def test_process_batch_non_list_payload_stops_pagination(mock_config, mock_db):
         ),
     ):
         more_data = AflowFetcher._process_batch(
-            BatchInfo(offset=0, limit=5), mock_config, manager_dict={}
+            BatchInfo(offset=0, limit=5), mock_config, manager_dict=status
         )
 
     assert more_data is False
+    assert status["failed"] is True
     mock_db.batch_insert_data.assert_not_called()
 
 
