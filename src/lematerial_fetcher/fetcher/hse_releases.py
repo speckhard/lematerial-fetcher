@@ -30,6 +30,17 @@ class ReleaseFile:
 
 
 FILES = {
+    "aims-processed-v1": ReleaseFile(
+        "all_electron_hybrid",
+        "10.6084/m9.figshare.28375538.v1",
+        54101633,
+        "https://ndownloader.figshare.com/files/54101633",
+        "processed_data.json",
+        "7e0a1e96801d2af2eee2bc92610c8fb9",
+        1616363,
+        "published",
+        None,
+    ),
     "snumat-v7": ReleaseFile(
         "snumat",
         "10.6084/m9.figshare.12839240.v7",
