@@ -80,9 +80,8 @@ def test_build_aflux_query_rejects_page_zero():
 
 
 def test_parse_aflowlib_date_scalar():
-    assert parse_aflowlib_date("20200426_10:04:20_GMT-5") == datetime(
-        2020, 4, 26, 10, 4, 20
-    )  # noqa: DTZ001 -- Compare the retained source calendar value.
+    expected = datetime(2020, 4, 26, 10, 4, 20)  # noqa: DTZ001 -- Source calendar value.
+    assert parse_aflowlib_date("20200426_10:04:20_GMT-5") == expected
 
 
 def test_parse_aflowlib_date_list_takes_most_recent():
