@@ -1,37 +1,52 @@
-# JARVIS band-gap observations — 2026-10-21
+# Reading JARVIS band gaps
 
-`extract_band_gaps(raw, receipt)` extracts optB88vdW and TBmBJ as separate eV
-observations. It does not manufacture missing values, infer nonmagnetism from
-zero total moment, or certify an independently verified calculation/structure
-binding. All outputs have `training_eligible=False` until downstream audits.
-This is an observation envelope, not an OPTIMADE structure transformer, a
-completed project training adapter, or an elastic-property implementation.
+This helper reads two separate observations from each raw row:
 
-Raw row and associated native atoms are retained by hash; the receipt declares
-the pinned raw archive and record identity. The function checks canonical row
-hashes, full native atom shape/count/basis, finite coordinates and nonsingular
-lattices. It does not prove caller receipts truthful or retrieve VASP inputs.
-No formula-only joins, element filtering, split assignment, source pooling or
-MP corrections occur here. Unknown U/SOC/spin/convergence stay unknown. Both
-method variants need the same split group downstream; distinct calculation IDs
-must not be interpreted as distinct independent crystals.
+- `optb88vdw_bandgap`, in eV.
+- `mbj_bandgap`, in eV.
 
-The returned gap mask means a valid scalar observation, not training eligibility.
-Numeric strings, negative, boolean or nonfinite gaps are not accepted as numbers;
-known null/NA placeholders stay missing. Zero is a valid gap. Full archive rows
-with non-JSON finite values fail hashing rather than silently changing input.
-Native atom properties are copied, with geometry hash restricted to explicit
-lattice/species/coordinates/basis; no hidden fractional/Cartesian conversion.
+It keeps zero gaps. Missing values stay missing. Negative values, booleans and
+numeric strings are kept as raw input but are not accepted as gap labels. The
+two methods have separate calculation IDs and retain the associated structure.
+They must stay in the same crystal group when the training split is assigned.
 
-Evidence and sources:
+For rows saved by the raw fetcher:
 
-- [NIST JARVIS](https://jarvis.nist.gov/): distinct electronic gap methods, including SOC variants.
-- [Official download field list](https://jarvis-materials-design.github.io/dbdocs/thedownloads/): `optb88vdw_bandgap`, `mbj_bandgap` and `atoms`.
-- [JARVIS Atoms implementation](https://github.com/usnistgov/jarvis/blob/master/jarvis/core/atoms.py): explicit coordinate basis and native structure schema.
-- [Method descriptor](https://www.nature.com/articles/sdata201882): electronic gaps in eV; method distinction matters.
+```python
+from lematerial_fetcher.fetcher.jarvis.band_gaps import extract_stored_band_gaps
+observations = extract_stored_band_gaps(raw_structure.attributes)
+```
 
-TDD: six new fixture tests failed collection before `band_gaps.py` existed, then
-passed after implementation. Combined raw/archive/publication/gap suite:
-19 passed, one production-parser dependency skip. These are tiny synthetic
-fixtures, not corpus coverage or real recovered training labels. Full dependency
-suite and live ingestion remain open. No new dependencies or bulk downloads.
+The helper separates the added `_lematerial_ingestion` receipt from the original
+row before computing the row hash. It checks an existing row hash if one was
+supplied and does not change the input. Published receipts must match the pinned
+Figshare article, version, file, snapshot and publication dates. Those fields
+remain in the output. Old or conflicting receipts fail rather than being silently
+renamed. For archive rows without stored metadata, use `extract_band_gaps` with
+an explicit matching receipt and raw-row hash.
+
+These are observations, not approved training examples. All outputs retain
+`training_eligible=False`. Spin, U, SOC, convergence and the electronic calculation's
+reference geometry still need independent evidence. A row hash binds the current
+row; it does not prove that a caller's row belongs to the original archive.
+Zero total magnetization does not prove a nonmagnetic state. No formula-only
+joins, MP energy corrections, gap imputation or source pooling happen here.
+
+The structure check keeps the native lattice, elements, coordinates and explicit
+fractional/Cartesian flag. It rejects invalid shapes, nonfinite coordinates,
+unknown elements and singular cells. It does not convert coordinate systems or
+certify that a structure is a stable crystal.
+
+## Tests and sources
+
+Six original tests cover gap methods, zeros, missing/invalid values, row binding
+and geometry checks. Three new stored-row tests first failed because the bridge
+was missing; they now pass and check receipt compatibility, date preservation,
+conflicts and input immutability. These use small synthetic rows. Full source
+acquisition, database ingestion and training are still separate checks.
+
+- [NIST JARVIS](https://jarvis.nist.gov/).
+- [Official property keys](https://jarvis-materials-design.github.io/dbdocs/thedownloads/).
+- [Native Atoms format](https://github.com/usnistgov/jarvis/blob/master/jarvis/core/atoms.py).
+- [Gap methods](https://www.nature.com/articles/sdata201882).
+- [Pinned export metadata](https://api.figshare.com/v2/articles/6815699/versions/11).

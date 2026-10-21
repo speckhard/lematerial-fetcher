@@ -117,3 +117,44 @@ class GapTests(unittest.TestCase):
         receipt["artifact_kind"] = "published"
         with self.assertRaises(ValueError):
             extract_band_gaps(row, receipt)
+
+
+class StoredGapTests(unittest.TestCase):
+    def test_raw_table_receipt_connects_to_gap_extractor_without_mutation(self):
+        from lematerial_fetcher.fetcher.jarvis.band_gaps import extract_stored_band_gaps
+
+        row, receipt = fixture()
+        stored = copy.deepcopy(row)
+        stored["_lematerial_ingestion"] = copy.deepcopy(receipt)
+        before = copy.deepcopy(stored)
+        result = extract_stored_band_gaps(stored)
+        self.assertEqual([x["value"] for x in result], [0.0, 1.5])
+        self.assertEqual(result[0]["raw_record_sha256"], digest(row))
+        self.assertEqual(stored, before)
+        self.assertFalse(any(x["training_eligible"] for x in result))
+
+    def test_published_receipt_dates_and_identity_are_preserved_and_checked(self):
+        from lematerial_fetcher.fetcher.jarvis.band_gaps import extract_stored_band_gaps
+        from lematerial_fetcher.fetcher.jarvis.release import make_receipt
+
+        row, _ = fixture()
+        stored = dict(row, _lematerial_ingestion=make_receipt("b" * 64))
+        result = extract_stored_band_gaps(stored)
+        self.assertEqual(
+            result[0]["source_receipt"]["published_date"], "2026-05-09T07:44:20Z"
+        )
+        self.assertEqual(result[0]["source_receipt"]["snapshot_date"], "2025-09-24")
+        self.assertFalse(result[0]["training_eligible"])
+        stored["_lematerial_ingestion"]["figshare_version"] = 12
+        with self.assertRaises(ValueError):
+            extract_stored_band_gaps(stored)
+
+    def test_missing_receipt_and_conflicting_record_hash_fail(self):
+        from lematerial_fetcher.fetcher.jarvis.band_gaps import extract_stored_band_gaps
+
+        row, receipt = fixture()
+        with self.assertRaises(ValueError):
+            extract_stored_band_gaps(row)
+        receipt["raw_record_sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            extract_stored_band_gaps(dict(row, _lematerial_ingestion=receipt))
