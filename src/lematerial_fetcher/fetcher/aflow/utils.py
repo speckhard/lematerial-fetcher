@@ -1,6 +1,6 @@
 # Copyright 2025 Entalpic
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from pymatgen.core import Lattice, Structure
 
@@ -68,7 +68,7 @@ def build_aflux_query(base_url: str, page: int, per_page: int) -> str:
     return f"{base_url}?{properties},$paging({page},{per_page})"
 
 
-def parse_aflowlib_date(raw: Any) -> Optional[datetime]:
+def parse_aflowlib_date(raw: Any) -> datetime | None:
     """Parse an AFLOW ``aflowlib_date`` value (e.g. ``20200426_10:04:20_GMT-5``).
 
     The timezone suffix is ignored; day-level precision is enough for versioning.
@@ -80,7 +80,7 @@ def parse_aflowlib_date(raw: Any) -> Optional[datetime]:
         if not raw:
             return None
     try:
-        return datetime.strptime(str(raw)[:17], "%Y%m%d_%H:%M:%S")
+        return datetime.strptime(str(raw)[:17], "%Y%m%d_%H:%M:%S")  # noqa: DTZ007 -- Retain source calendar date, not a UTC timestamp.
     except ValueError:
         return None
 
@@ -141,13 +141,9 @@ def transform_aflux_entry(
     # computed with LDA pseudopotentials. The Functional enum cannot represent
     # those, so refuse to label them PBE; the transformer will skip the row.
     dft_type = attributes.get("dft_type")
-    if dft_type is not None:
-        dft_types = dft_type if isinstance(dft_type, list) else [dft_type]
-        if any(t != "PAW_PBE" for t in dft_types):
-            raise ValueError(
-                f"Unsupported dft_type {dft_types}: only PAW_PBE entries can be "
-                f"mapped to functional=pbe"
-            )
+    dft_types = dft_type if isinstance(dft_type, list) else [dft_type]
+    if not dft_types or any(t != "PAW_PBE" for t in dft_types):
+        raise ValueError("Explicit nonempty PAW_PBE dft_type is required")
 
     structure = build_structure_from_aflux(attributes)
     optimade_fields = get_optimade_from_pymatgen(structure)
@@ -155,7 +151,6 @@ def transform_aflux_entry(
     auid = str(entry_id).replace("aflow:", "").strip()
     immutable_id = f"aflow-{auid}"
 
-    energy = attributes.get("energy_cell")
     last_modified = parse_aflowlib_date(attributes.get("aflowlib_date"))
 
     return OptimadeStructure(
@@ -164,11 +159,13 @@ def transform_aflux_entry(
         immutable_id=immutable_id,
         source="aflow",
         functional=Functional.PBE,
-        last_modified=last_modified or datetime.now(timezone.utc),
+        last_modified=last_modified or datetime.now(UTC),
         # Conservative until AFLOW DFT settings (spin polarization, pseudopotentials)
         # are audited against the compatibility criteria used for MP/Alexandria/OQMD.
         cross_compatibility=False,
-        energy=float(energy) if energy is not None else None,
+        # Source energy stays in the raw table. Supplying it here would trigger
+        # shared MP corrections with unaudited AFLOW U/POTCAR assumptions.
+        energy=None,
         compute_space_group=True,
         compute_bawl_hash=True,
     )

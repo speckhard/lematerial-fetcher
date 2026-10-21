@@ -1,5 +1,5 @@
 # Copyright 2025 Entalpic
-from typing import Any, Optional
+from typing import Any
 
 from lematerial_fetcher.database.postgres import StructuresDatabase
 from lematerial_fetcher.fetcher.aflow.utils import transform_aflux_entry
@@ -18,8 +18,8 @@ class AflowTransformer(BaseTransformer):
     def transform_row(
         self,
         raw_structure: RawStructure | dict[str, Any],
-        source_db: Optional[StructuresDatabase] = None,
-        task_table_name: Optional[str] = None,
+        source_db: StructuresDatabase | None = None,
+        task_table_name: str | None = None,
     ) -> list[OptimadeStructure]:
         """
         Transform a raw AFLOW structure into OptimadeStructures.
@@ -43,7 +43,7 @@ class AflowTransformer(BaseTransformer):
             optimade_structure = transform_aflux_entry(
                 raw_structure.attributes, raw_structure.id
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- Keep invalid rows in raw storage and skip their transform.
             logger.warning(f"Error transforming structure {raw_structure.id}: {e}")
             return []
 

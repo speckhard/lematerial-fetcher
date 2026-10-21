@@ -2,17 +2,29 @@
 """Bounded, checksum-verified JARVIS-DFT raw archive handling."""
 
 import hashlib
-import io
 import os
 import tempfile
 import zipfile
 from pathlib import Path
 
+from lematerial_fetcher.fetcher.jarvis.release import (
+    ARCHIVE_MD5,
+    ARCHIVE_URL,
+    ARCHIVE_VERSION,
+)
 from lematerial_fetcher.models.models import RawStructure
 
-ARCHIVE_URL = "https://ndownloader.figshare.com/files/64391379"
-ARCHIVE_MD5 = "c3179161ef0d029cf1fa70da463aac6e"
-ARCHIVE_VERSION = "jarvis-dft-3d-2025-09-24-file64391379"
+# Keep these imports available to existing callers of the archive module.
+__all__ = [
+    "ARCHIVE_MD5",
+    "ARCHIVE_URL",
+    "ARCHIVE_VERSION",
+    "cache_archive",
+    "file_hash",
+    "iter_records",
+    "store_records",
+]
+
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_JSON_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -84,17 +96,14 @@ def iter_records(path, expected_md5=ARCHIVE_MD5, *, parser=None):
         if members[0].file_size > MAX_JSON_BYTES or members[0].flag_bits & 1:
             raise ValueError("unsupported JSON member size/encryption")
         seen = set()
-        # UTF-8 decoding is strict; malformed source data must fail the fetch.
-        with (
-            archive.open(members[0]) as binary,
-            io.TextIOWrapper(binary, encoding="utf-8") as stream,
-        ):
+        # ijson expects bytes and performs JSON/UTF-8 validation itself.
+        with archive.open(members[0]) as stream:
             # Require an array root even when a parser would accept an object
             # with a property named "item". ZIP streams support rewind.
             char = stream.read(1)
             while char and char.isspace():
                 char = stream.read(1)
-            if char != "[":
+            if char != b"[":
                 raise ValueError("expected a JSON array root")
             stream.seek(0)
             for row in parser(stream):
