@@ -145,10 +145,10 @@ lematerial-fetcher [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
 
    ```bash
    # Fetch data through AFLUX. Use a new table for each attempt.
-   lematerial-fetcher aflow fetch --table-name aflow_structures
+   lematerial_fetcher aflow fetch --table-name aflow_structures
 
    # Transform data
-   lematerial-fetcher aflow transform --table-name source_table --dest-table-name dest_table
+   lematerial_fetcher aflow transform --table-name source_table --dest-table-name dest_table
    ```
 
    A failed fetch raises an error and does not record a completed version. It
