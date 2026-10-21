@@ -1,9 +1,7 @@
-# Pinned hybrid-gap source exports — 2026-10-21
+# Downloading the two HSE datasets
 
-Acquire both approved sources directly to approved HU storage. This is raw file
-acquisition; it does not extract ZIPs, open ASE databases, normalize gaps, infer
-protocol metadata or start a training run. Reuse the installed requests runtime.
-No network or software installation occurs at import time.
+This command downloads SNUMAT and the all-electron HSE06/PBEsol exports. Run it
+on approved HU storage after checking the job budget and free space:
 
 ```sh
 PYTHONPATH=src python -m lematerial_fetcher.fetcher.hse_releases \
@@ -11,56 +9,55 @@ PYTHONPATH=src python -m lematerial_fetcher.fetcher.hse_releases \
   --output /approved/hu/storage/hse-source-files
 ```
 
-Use only within the project's funded/controller-owned acquisition stage, after
-quota checks. The example path is a placeholder, not a configured HU location.
-There is no new global `lematerial_fetcher hse` CLI command or database ingestion
-hook in this PR; the module CLI makes explicit file selections reproducible.
+Replace the example output path. The command does not unpack ZIPs, open the
+structure databases or train a model. It uses the project's existing requests
+package. No network request happens when the module is imported or when help is
+shown. There is no global `lematerial_fetcher hse` database command yet.
 
-## Frozen file identities
-
-| File selection | Source/version | File ID | Bytes |
+| Selection | Source version | File ID | Download bytes |
 | --- | --- | --- | --- |
-| snumat-v7 | SNUMAT Figshare12839240v7 | 27536420 | 9,296,882 |
-| aims-hse06-v1 | All-electron Figshare28375538v1 | 54101624 | 20,647,936 |
-| aims-pbesol-v1 | Same all-electron source, paired lower-level export | 54101630 | 27,324,416 |
+| snumat-v7 | Figshare12839240v7 | 27536420 | 9,296,882 |
+| aims-hse06-v1 | Figshare28375538v1 | 54101624 | 20,647,936 |
+| aims-pbesol-v1 | Same source, lower-level calculation | 54101630 | 27,324,416 |
 
-Pins (URL, size, publisher MD5, version and method) are in the checked-in catalogue.
-[SNUMAT metadata](https://api.figshare.com/v2/articles/12839240/versions/7) and
-[all-electron metadata](https://api.figshare.com/v2/articles/28375538/versions/1)
-were inspected for the parent project's 2026-10-20 source manifest. Those pinned
-identities were reused; this change does not claim a new live data validation.
-Retain attribution and source licenses when publishing derived data. Processed
-CSV/JSON alternate views are deliberately excluded to avoid counting copies as
-new observations. Published cohort size is not a usable-label count.
+The code pins each file's URL, size, publisher checksum and version. Source
+metadata: [SNUMAT](https://api.figshare.com/v2/articles/12839240/versions/7) and
+[all-electron hybrid](https://api.figshare.com/v2/articles/28375538/versions/1).
+Keep their attribution and licenses with derived datasets. CSV/JSON copies of
+the same records are not additional materials.
 
-Each cache is size/checksum revalidated, protected by an exclusive per-file lock,
-and published atomically after verification. Interrupted, oversized, wrong-size
-or checksum-failing transfers remove their partial file. Completed caches are
-reusable; partial HTTP-range resume is not implemented. No silent replacement of
-a corrupted existing export occurs. Read/connect timeouts are explicit; use a
-bounded scheduler walltime for the whole acquisition stage.
+Downloads have explicit timeouts and exact size/checksum checks. A completed file
+is renamed into place only after verification. Interrupted or invalid transfers
+leave no published partial file. A file lock prevents two writers using the same
+cache. An existing complete file is checked again and reused; a corrupt existing
+file causes an error. Partial HTTP-range resume is not implemented. Use a bounded
+job walltime for the whole download stage.
 
-A sidecar records file ID, source/version, method, byte count, publisher MD5 and
-computed SHA256. It is compatible with the existing project's local SNUMAT and
-all-electron readers. File verification is not record-level geometry/protocol
-verification. Receipt output follows successful acquisition; a crash after file
-publication but before receipt publication can be recovered by rechecking the
-cached file. No source archive is extracted here.
+Each file gets a JSON receipt with its source/version, method, file ID, byte
+count, publisher MD5 and computed SHA256. These fields match the parent project's
+existing local HSE readers. If a process stops between file and receipt writes,
+a retry checks the cached file and recreates the receipt. No published source
+file was downloaded during the local tests.
 
-## Training integration remains a separate gate
+## Before training
 
-Preserve both HSE sources and their method-specific output selectors. Pair only
-verified geometry/protocol observations, retain PBE/PBEsol supervision, deduplicate
-alternate export copies and group aliases before split assignment. Unknown U,
-spin, SOC and convergence remain unknown. Weighted HSE training is not a weighted
-single scalar silently mixing PBE and HSE. The parent project already has local
-readers; live schema/receipt evidence must still be checked on acquired sources.
+The two datasets have different calculation settings. Keep those settings and
+source-specific outputs; do not call a weighted PBE/HSE average an HSE prediction.
+Inspect the actual records, match structures carefully and keep copies of one
+crystal in the same split. Unknown spin, U, SOC and convergence stay unknown.
+A checksum proves file identity, not record eligibility or model accuracy.
 
-## TDD and validation
+Both approved HSE sources must be audited for the combined milestone. A usable
+single-source baseline is clearly labeled as partial if the other source fails.
+Fine-tuning and matched-pair delta learning remain later comparisons.
 
-Five new tests failed before this module existed, then passed after implementation.
-Fixtures exercise complete cache reuse and corruption, interruption, size/hash
-failure, safe identity selection, sidecar integrity and explicit synthetic status.
-Combined JARVIS raw/gap and HSE tests: 24 passed, one ijson dependency skip.
-Ruff checks/formatting run on the new HSE module and tests. No published source
-file, production database or model training was exercised. No new dependencies.
+## Tests and review follow-up
+
+Five acquisition tests first failed because the module was missing, then passed.
+They use tiny synthetic byte streams to check interruption, wrong size/checksum,
+cache corruption/reuse, safe file selection and receipt fields. The module help
+also runs under the existing Python3.12. No software was installed.
+
+PR4 now includes the corrected AFLOW/JARVIS branches below it. Review found no
+separate HSE acquisition bug requiring a change to its download code. Full-runtime
+source ingestion, actual file-to-reader checks and training remain separate work.
