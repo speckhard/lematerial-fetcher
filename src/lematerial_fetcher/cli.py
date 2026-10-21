@@ -15,6 +15,8 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
+from lematerial_fetcher.fetcher.aflow.fetch import AflowFetcher
+from lematerial_fetcher.fetcher.aflow.transform import AflowTransformer
 from lematerial_fetcher.fetcher.alexandria.fetch import (
     AlexandriaFetcher,
     AlexandriaTrajectoryFetcher,
@@ -23,6 +25,7 @@ from lematerial_fetcher.fetcher.alexandria.transform import (
     AlexandriaTrajectoryTransformer,
     AlexandriaTransformer,
 )
+from lematerial_fetcher.fetcher.lematrho.pipeline import LeMatRhoDirectPipeline
 from lematerial_fetcher.fetcher.mp.fetch import MPFetcher
 from lematerial_fetcher.fetcher.mp.transform import (
     MPTrajectoryTransformer,
@@ -37,6 +40,7 @@ from lematerial_fetcher.push import Push
 from lematerial_fetcher.utils.cli import (
     add_common_options,
     add_fetch_options,
+    add_lematrho_direct_options,
     add_mp_fetch_options,
     add_mysql_options,
     add_push_options,
@@ -44,6 +48,7 @@ from lematerial_fetcher.utils.cli import (
     get_default_mp_bucket_name,
 )
 from lematerial_fetcher.utils.config import (
+    load_direct_pipeline_config,
     load_fetcher_config,
     load_push_config,
     load_transformer_config,
@@ -62,6 +67,7 @@ _ALEXANDRIA_TRAJECTORY_BASE_URL = {
     "pbesol": "https://alexandria.icams.rub.de/data/pbesol/geo_opt_paths/",
 }
 _OQMD_BASE_URL = "https://oqmd.org/download/"
+_AFLOW_BASE_URL = "http://aflow.org/API/aflux/"
 
 
 @click.group()
@@ -114,9 +120,25 @@ def oqmd_cli(ctx):
     pass
 
 
+@click.group(name="lematrho")
+@click.pass_context
+def lematrho_cli(ctx):
+    """Commands for fetching charge density data from LeMatRho."""
+    pass
+
+
+@click.group(name="aflow")
+@click.pass_context
+def aflow_cli(ctx):
+    """Commands for fetching data from AFLOW (via the AFLUX API)."""
+    pass
+
+
 cli.add_command(mp_cli)
 cli.add_command(alexandria_cli)
 cli.add_command(oqmd_cli)
+cli.add_command(lematrho_cli)
+cli.add_command(aflow_cli)
 
 # ------------------------------------------------------------------------------
 # MP commands
@@ -337,6 +359,89 @@ def oqmd_transform(ctx, traj, **config_kwargs):
         else:
             transformer = OQMDTransformer(config=config, debug=ctx.obj["debug"])
         transformer.transform()
+    except KeyboardInterrupt:
+        logger.fatal("\nAborted.", exit=1)
+
+
+# ------------------------------------------------------------------------------
+# AFLOW commands
+# ------------------------------------------------------------------------------
+
+
+@aflow_cli.command(name="fetch")
+@click.pass_context
+@click.option(
+    "--base-url",
+    type=str,
+    help="Base URL for the AFLUX API. Can be set via LEMATERIALFETCHER_API_BASE_URL environment variable.",
+)
+@add_common_options
+@add_fetch_options
+def aflow_fetch(ctx, base_url, **config_kwargs):
+    """Fetch materials from AFLOW.
+
+    This command fetches raw AFLUX entries from AFLOW and stores them in a database.
+    Options can be provided via command line arguments or environment variables.
+    See individual option help for corresponding environment variables.
+    """
+    if base_url:
+        config_kwargs["base_url"] = base_url
+    else:
+        config_kwargs["base_url"] = _AFLOW_BASE_URL
+        logger.info(
+            f"Using AFLOW base URL: {config_kwargs['base_url']}. You can change this by setting the --base-url option."
+        )
+
+    config = load_fetcher_config(**config_kwargs)
+    try:
+        fetcher = AflowFetcher(config=config, debug=ctx.obj["debug"])
+        fetcher.fetch()
+    except KeyboardInterrupt:
+        logger.fatal("\nAborted.", exit=1)
+
+
+@aflow_cli.command(name="transform")
+@click.pass_context
+@add_common_options
+@add_transformer_options
+def aflow_transform(ctx, traj, **config_kwargs):
+    """Transform materials from AFLOW.
+
+    This command processes raw AFLUX entries into the clean OPTIMADE format.
+    Options can be provided via command line arguments or environment variables.
+    See individual option help for corresponding environment variables.
+    """
+    if traj:
+        logger.fatal("AFLOW does not support trajectory transformations.", exit=1)
+    config = load_transformer_config(**config_kwargs)
+    try:
+        transformer = AflowTransformer(config=config, debug=ctx.obj["debug"])
+        transformer.transform()
+    except KeyboardInterrupt:
+        logger.fatal("\nAborted.", exit=1)
+
+
+# ------------------------------------------------------------------------------
+# LeMatRho commands
+# ------------------------------------------------------------------------------
+
+
+@lematrho_cli.command(name="run")
+@click.pass_context
+@add_lematrho_direct_options
+def lematrho_run(ctx, **config_kwargs):
+    """Run complete LeMatRho pipeline: S3 -> Parquet -> HuggingFace.
+
+    Downloads charge density data, compresses via pyrho, optionally runs
+    Bader and DDEC6 analysis, and writes Parquet files directly.
+    No PostgreSQL required.
+
+    Requires AWS credentials (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY).
+    """
+    config = load_direct_pipeline_config(**config_kwargs)
+    try:
+        pipeline = LeMatRhoDirectPipeline(config=config, debug=ctx.obj["debug"])
+        pipeline.run()
     except KeyboardInterrupt:
         logger.fatal("\nAborted.", exit=1)
 

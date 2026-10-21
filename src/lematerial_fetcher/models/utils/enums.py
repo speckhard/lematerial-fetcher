@@ -13,3 +13,5 @@ class Source(str, Enum):
     ALEXANDRIA = "alexandria"
     MP = "mp"
     OQMD = "oqmd"
+    LEMATRHO = "lematrho"
+    AFLOW = "aflow"
