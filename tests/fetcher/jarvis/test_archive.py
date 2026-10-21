@@ -175,7 +175,7 @@ class ArchiveTests(unittest.TestCase):
             [{"jid": "JVASP-1", "atoms": {}}],
             batches.extend,
             1,
-            {"release_date": "2025-09-24"},
+            {"snapshot_date": "2025-09-24"},
         )
         self.assertIsNone(batches[0].last_modified)
 
@@ -202,3 +202,22 @@ class ArchiveTests(unittest.TestCase):
                 md5 = hashlib.md5(path.read_bytes()).hexdigest()
                 with self.assertRaises((ValueError, ijson.JSONError)):
                     list(iter_records(path, md5))
+
+
+class BinaryStreamTests(unittest.TestCase):
+    def test_parser_receives_binary_stream(self):
+        from lematerial_fetcher.fetcher.jarvis.archive import iter_records
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "binary.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(
+                    "data.json", json.dumps([{"jid": "JVASP-1", "atoms": {}}])
+                )
+            md5 = hashlib.md5(path.read_bytes()).hexdigest()
+
+            def parser(stream):
+                self.assertIsInstance(stream.read(0), bytes)
+                return iter(json.load(stream))
+
+            self.assertEqual(len(list(iter_records(path, md5, parser=parser))), 1)

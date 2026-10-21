@@ -13,6 +13,7 @@ from lematerial_fetcher.fetcher.jarvis.archive import (
     iter_records,
 )
 from lematerial_fetcher.fetcher.jarvis.publication import identifier, ingest
+from lematerial_fetcher.fetcher.jarvis.release import make_receipt
 from lematerial_fetcher.utils.config import load_fetcher_config
 from lematerial_fetcher.utils.io import create_session
 from lematerial_fetcher.utils.logging import get_cache_dir, logger
@@ -57,15 +58,7 @@ class JarvisFetcher:
                 get_cache_dir() / "jarvis-64391379.zip",
                 ARCHIVE_MD5,
             )
-            receipt = {
-                "source": "jarvis_dft",
-                "version": ARCHIVE_VERSION,
-                "release_date": "2025-09-24",
-                "url": ARCHIVE_URL,
-                "archive_md5": ARCHIVE_MD5,
-                "archive_sha256": file_hash(path, "sha256"),
-                "scope": "raw source values; functional/protocol-specific labels",
-            }
+            receipt = make_receipt(file_hash(path, "sha256"))
             staging = "jarvis_stage_" + uuid.uuid4().hex
             db = StructuresDatabase(self.config.db_conn_str, staging)
             count = ingest(
