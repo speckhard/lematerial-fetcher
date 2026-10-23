@@ -5,6 +5,7 @@ import io
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 
 PATH = (
@@ -96,6 +97,43 @@ class Contracts(unittest.TestCase):
             self.assertEqual(result["conflicting_ids"], ["a"])
             self.assertEqual(result["candidate_rows"], 0)
             self.assertEqual(result["requests"], 4)
+
+    def test_transport_diagnostics_distinguish_timeout_and_http_without_secrets(self):
+        cases = [
+            (
+                urllib.error.URLError(TimeoutError("secret timeout URL")),
+                {
+                    "class": "URLError",
+                    "http_status": None,
+                    "reason_class": "TimeoutError",
+                },
+            ),
+            (
+                urllib.error.HTTPError(
+                    "https://secret-url/",
+                    503,
+                    "secret reason",
+                    {"Authorization": "secret header"},
+                    io.BytesIO(b"secret body"),
+                ),
+                {"class": "HTTPError", "http_status": 503, "reason_class": "str"},
+            ),
+            (
+                TimeoutError("secret socket details"),
+                {"class": "TimeoutError", "http_status": None, "reason_class": None},
+            ),
+        ]
+        for error, expected in cases:
+            with (
+                self.subTest(error=type(error).__name__),
+                tempfile.TemporaryDirectory() as root,
+            ):
+                result, _ = self.run_fake(root, [error, error])
+                self.assertEqual(result["last_transport_error"], expected)
+                persisted = json.loads(Path(root, "progress.json").read_bytes())
+                self.assertEqual(persisted["last_transport_error"], expected)
+                self.assertNotIn("secret", json.dumps(result))
+                self.assertNotIn("secret", json.dumps(persisted))
 
     def test_external_pin_and_corrupt_page_block_network(self):
         with tempfile.TemporaryDirectory() as root:

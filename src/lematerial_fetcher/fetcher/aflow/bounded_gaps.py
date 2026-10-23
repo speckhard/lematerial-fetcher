@@ -11,6 +11,8 @@ import hashlib
 import json
 import math
 import os
+import socket
+import ssl
 import stat
 import time
 import urllib.error
@@ -86,6 +88,39 @@ def _atomic(path, raw):
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *_args, **_kwargs):
         raise ValueError("Redirect refused")
+
+
+def _transport_diagnostic(error):
+    """Whitelist type categories only; never stringify exception metadata."""
+
+    def category(value):
+        for kind in (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            ssl.SSLCertVerificationError,
+            ssl.SSLError,
+            socket.gaierror,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+        ):
+            if isinstance(value, kind):
+                return kind.__name__
+        if type(value) is str:
+            return "str"
+        if value is None:
+            return None
+        return "Exception" if isinstance(value, BaseException) else "other"
+
+    status = error.code if isinstance(error, urllib.error.HTTPError) else None
+    if type(status) is not int or not 100 <= status <= 599:
+        status = None
+    reason = error.reason if isinstance(error, urllib.error.URLError) else None
+    return {
+        "class": category(error),
+        "http_status": status,
+        "reason_class": category(reason),
+    }
 
 
 def acquire(
@@ -301,8 +336,9 @@ def _acquire(root, limits, pin, opener, clock, sleep):
                             raise ValueError("Response cap")
                     raw = bytes(raw)
                 count = consume(raw)
-            except (OSError, urllib.error.URLError):
+            except (OSError, urllib.error.URLError) as error:
                 progress["pending"] = False
+                progress["last_transport_error"] = _transport_diagnostic(error)
                 progress["stop_reason"] = "transport_error"
                 persist()
                 if attempt + 1 < limits["attempts_per_page"]:
@@ -346,6 +382,7 @@ def _acquire(root, limits, pin, opener, clock, sleep):
         "conflicting_ids": sorted(conflicts),
         "source_exhausted": progress["source_exhausted"],
         "stop_reason": progress["stop_reason"],
+        "last_transport_error": progress.get("last_transport_error"),
         "candidates": candidates,
         "scope": "ordered_prefix_not_training_admission",
     }

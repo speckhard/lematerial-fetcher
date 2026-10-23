@@ -89,3 +89,40 @@ per-page charges now persist before HTTP, and exhausted pages do not fetch again
 Astra independently reran all eleven bounded tests and approved this software-only
 draft after that fix. This does not authorize live acquisition or certify actual
 AFLOW payloads, PostgreSQL or Lustre behavior.
+
+## First allocated use and next query proposal
+
+The parent project reports that HU job1644897 executed the pinned first version:
+five pages were retained, page6 exhausted its three transport attempts, and the
+run returned a truthful incomplete prefix with nine charged HTTP requests and
+18MiB reserved response bytes. The exact transport class/status was not retained
+by that version, so we cannot distinguish a timeout from an HTTP error after the
+fact. The earlier seventeen pages used another query and remain separate.
+
+The new diagnostic records only whitelisted error-class categories, an integer
+HTTP status when the exception is an HTTPError, and the wrapped reason's class.
+It never serializes a URL, reason message, response body, headers or exception
+string. For example URLError wrapping TimeoutError differs from HTTPError503.
+Unknown subclass names are collapsed to safe categories. The diagnostic stays in
+progress and the returned summary; it is historical last-error information even
+if a later retry succeeds. Old progress without that optional key remains
+readable, and existing limits, attempt charges and pin checks are unchanged.
+Three subcases first failed with missing diagnostic keys; after implementation,
+all twelve bounded contracts and six legacy AFLOW offline contracts pass.
+
+Propose a NEW acquisition directory with `per_page=200`, `max_pages=100`,
+`max_rows=20000`, `timeout_seconds=60`, `attempts_per_page=3`, `max_requests=150`,
+`max_page_bytes=2097152`, `max_reserved_bytes=314572800`, and an absolute deadline
+fifteen minutes after the approved stage starts (also inside its scheduler cutoff).
+Smaller pages may reduce server response cost; a longer socket timeout may avoid
+premature read failures. These are hypotheses, not an established failure diagnosis
+or a promise of20000 rows within fifteen minutes.
+
+This changed query MUST NOT reuse the old acquisition directory or reset page6's
+exhausted attempts. The old five-page prefix, exact query/limits/progress hash,
+request charges and eighteen-MiB reservation remain historical evidence. The new
+query duplicates part of the old prefix, so combine later by exact source identity
+with conflict quarantine and preserve both acquisition receipts; do not add raw
+prefix counts and call that unique coverage. Parent scheduling/accounting approval
+and independent review are required before this new query runs. This software
+update performed no live HTTP request or new HU allocation.
